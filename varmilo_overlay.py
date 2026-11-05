@@ -8,16 +8,20 @@ key and records the LED that turned white.
 Colours live in the keyboard's RAM, so the overlay must keep running. Quitting it from the tray hands
 the keyboard to SignalRGB (plugin on "Auto") or back to the onboard lighting.
 """
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 import colorsys
 import json
 import os
 import queue
+import re
+import subprocess
 import sys
 import threading
 import time
 import tkinter as tk
 import traceback
+import urllib.request
+import winreg
 from tkinter import colorchooser, simpledialog
 
 import pystray
@@ -292,9 +296,47 @@ class Overlay:
         if hidden and self.state["map"]:
             self.root.withdraw()
         threading.Thread(target=self.worker, daemon=True).start()
+        if can_self_update():
+            threading.Thread(target=self.check_updates, daemon=True).start()
         self.poll()
         if not self.state["map"]:
             self.begin_learning()
+
+    # ---- updates -----------------------------------------------------------------------------
+
+    def check_updates(self):
+        time.sleep(5)  # let the lighting start first
+        while not self.stop.is_set():
+            try:
+                latest = latest_version()
+                if version_tuple(latest) > version_tuple(__version__):
+                    self.actions.put(lambda: self.offer_update(latest))
+            except (OSError, ValueError, KeyError):  # offline or GitHub unreachable: just try again later
+                pass
+            self.stop.wait(UPDATE_CHECK_SECONDS)
+
+    def offer_update(self, latest):
+        self.update_button.configure(text=f"↑ Update auf v{latest}", fg=self.accent())
+        self.update_button.bind("<Leave>", lambda _: self.update_button.configure(bg=self.BG, fg=self.accent()))
+        self.update_button.pack(side="right", before=self.version)
+
+    def run_update(self):
+        self.update_button.configure(text="Lädt Update…")
+
+        def work():
+            try:
+                install_update(plugin_dir=signalrgb_plugin_dir())
+                self.actions.put(self.restart)
+            except (OSError, ValueError, SyntaxError) as error:
+                self.actions.put(lambda: self.update_button.configure(text=f"Update fehlgeschlagen: {error}"[:60]))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def restart(self):
+        """Start the new version; it waits until this one has quit and released the keyboard."""
+        pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        subprocess.Popen([pythonw, os.path.abspath(__file__), "--restart"], cwd=APP_DIR)
+        self.close()
 
     def worker(self):
         while not self.stop.is_set():
@@ -402,6 +444,9 @@ class Overlay:
         startup.pack(side="left", padx=6)
         startup.bind("<Button-1>", lambda _: self.set_autostart(not os.path.exists(STARTUP_FILE)))
         self.ghost(footer, "Tasten einlernen", self.begin_learning).pack(side="right")
+        self.update_button = self.ghost(footer, "", self.run_update)  # shown only when a newer release exists
+        self.version = tk.Label(footer, text=f"v{__version__}", bg=self.BG, fg=self.LINE, font=("Segoe UI", 8))
+        self.version.pack(side="right", padx=6)
 
     def build_modes(self):
         bar = tk.Frame(self.controls, bg=self.SURFACE, padx=3, pady=3)
@@ -769,12 +814,70 @@ def tray_image():
     return image
 
 
-def already_running():
-    """A second copy would fight the first one over the LEDs."""
+# ---- updates ---------------------------------------------------------------------------------
+# Settings and profiles live in %APPDATA%\VarmiloOverlay, apart from the program files, so an update
+# replaces only the files below and never touches them.
+REPO = "laurensanp/varmilo-rgb"
+APP_FILES = ("varmilo.py", "varmilo_overlay.py", "Varmilo_Minilo75_Pro.js")
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+UPDATE_CHECK_SECONDS = 6 * 3600
+
+
+def version_tuple(text):
+    return tuple(int(part) for part in re.findall(r"\d+", text)[:3])
+
+
+def latest_version():
+    with urllib.request.urlopen(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=10) as response:
+        return json.load(response)["tag_name"].lstrip("v")
+
+
+def download(name):
+    with urllib.request.urlopen(f"https://github.com/{REPO}/releases/latest/download/{name}", timeout=30) as response:
+        return response.read()
+
+
+def can_self_update():
+    """A git checkout is someone's source code; only installed copies replace themselves."""
+    return not os.path.isdir(os.path.join(APP_DIR, ".git"))
+
+
+def signalrgb_plugin_dir():
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\WhirlwindFX\SignalRgb") as key:
+            return os.path.join(winreg.QueryValueEx(key, "UserDirectory")[0], "Plugins")
+    except OSError:
+        return None
+
+
+def install_update(fetch=download, folder=APP_DIR, plugin_dir=None):
+    files = {name: fetch(name) for name in APP_FILES}  # everything is downloaded before anything is replaced
+    for name, content in files.items():
+        if name.endswith(".py"):
+            compile(content, name, "exec")  # a broken download must never replace a working program
+    targets = [(os.path.join(folder, name), content) for name, content in files.items()]
+    plugin = os.path.join(plugin_dir, "Varmilo_Minilo75_Pro.js") if plugin_dir else None
+    if plugin and os.path.exists(plugin):  # only refresh a plugin the user installed
+        targets.append((plugin, files["Varmilo_Minilo75_Pro.js"]))
+    for path, content in targets:
+        with open(path + ".download", "wb") as f:
+            f.write(content)
+        os.replace(path + ".download", path)
+
+
+def already_running(wait=0):
+    """A second copy would fight the first one over the LEDs. After an update, wait for the old one to quit."""
     import ctypes
     kernel32 = ctypes.windll.kernel32
-    already_running.mutex = kernel32.CreateMutexW(None, False, "Local\\VarmiloOverlay")  # held for the process lifetime
-    return kernel32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
+    end = time.monotonic() + wait
+    while True:
+        already_running.mutex = kernel32.CreateMutexW(None, False, "Local\\VarmiloOverlay")  # held for the process lifetime
+        if kernel32.GetLastError() != 183:  # ERROR_ALREADY_EXISTS
+            return False
+        kernel32.CloseHandle(already_running.mutex)
+        if time.monotonic() >= end:
+            return True
+        time.sleep(0.3)
 
 
 def wait_for_taskbar(seconds=90):
@@ -787,7 +890,7 @@ def wait_for_taskbar(seconds=90):
 
 if __name__ == "__main__":
     try:
-        if not already_running():
+        if not already_running(wait=15 if "--restart" in sys.argv else 0):
             if "--hidden" in sys.argv:
                 wait_for_taskbar()
             Overlay(hidden="--hidden" in sys.argv).root.mainloop()

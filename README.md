@@ -21,7 +21,13 @@ irm https://raw.githubusercontent.com/laurensanp/varmilo-rgb/main/install.ps1 | 
 
 The installer asks whether it should start with Windows, whether to start it right away and, if SignalRGB is installed, whether to add the plugin. It needs Python 3.9 or newer (`winget install Python.Python.3.12`). Feel free to [read the script](install.ps1) first.
 
-To update or uninstall, run the same line again.
+## Updating
+
+The overlay checks GitHub for new releases. When one is out, **Update auf vX.Y.Z** appears at the bottom of the window: one click downloads it, refreshes the SignalRGB plugin if you installed it, and restarts the overlay. You can also run the install line again and pick **Update**, which asks no questions.
+
+Updates only replace the program files. Your colours, profiles, learned keys and settings live in `%APPDATA%\VarmiloOverlay` and are never touched.
+
+To uninstall, run the install line and pick **Remove**.
 
 ## Good to know
 

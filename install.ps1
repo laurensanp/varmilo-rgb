@@ -55,6 +55,7 @@
   Write-Host ""
 
   $pluginDir = Get-PluginDir
+  $isUpdate = $false
 
   if (Test-Path "$dir\varmilo_overlay.py") {
     Write-Host "It's already installed."
@@ -74,6 +75,7 @@
       Write-Host "Removed." -ForegroundColor Green
       return
     }
+    $isUpdate = $true
   }
 
   $python = Find-Python
@@ -85,9 +87,17 @@
   }
   $pythonw = Join-Path (Split-Path $python) "pythonw.exe"
 
-  $useAutostart = Ask "Start it automatically with Windows?" $true
-  $startNow = Ask "Start it now?" $true
-  $usePlugin = $pluginDir -and (Ask "SignalRGB found. Install the plugin too? (SignalRGB effects on the keyboard)" $true)
+  if ($isUpdate) {
+    # An update keeps every earlier choice; colours, profiles and the key map live in $settings and stay.
+    $useAutostart = (Test-Path $autostart) -or (Test-Path $legacyAutostart)
+    $startNow = $true
+    $usePlugin = $pluginDir -and (Test-Path "$pluginDir\Varmilo_Minilo75_Pro.js")
+    Write-Host "Updating. Your colours, profiles and settings are kept."
+  } else {
+    $useAutostart = Ask "Start it automatically with Windows?" $true
+    $startNow = Ask "Start it now?" $true
+    $usePlugin = $pluginDir -and (Ask "SignalRGB found. Install the plugin too? (SignalRGB effects on the keyboard)" $true)
+  }
 
   Write-Host ""
   Write-Host "Downloading..."

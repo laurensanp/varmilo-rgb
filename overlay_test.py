@@ -198,6 +198,35 @@ with open(__file__.replace("overlay_test.py", "Varmilo_Minilo75_Pro.js"), encodi
     plugin_leds = {int(led) for led in re.findall(r"\[\"[^\"]*\", \d+, \d+, (\d+)\]", plugin.read())}
 assert plugin_leds == set(o.DEFAULT_MAP.values())
 
+# Updates: versions compare as numbers, and an update replaces program files only, never settings.
+import os
+import tempfile
+
+assert o.version_tuple("1.10.0") > o.version_tuple("1.9.2") and o.version_tuple("v1.1.0") == (1, 1, 0)
+with tempfile.TemporaryDirectory() as tmp:
+    app, plugins = os.path.join(tmp, "app"), os.path.join(tmp, "plugins")
+    os.makedirs(app)
+    os.makedirs(plugins)
+    settings = os.path.join(app, "state.json")
+    with open(settings, "w") as f:
+        f.write("mine")
+    new = {"varmilo.py": b"x = 1\n", "varmilo_overlay.py": b"y = 2\n", "Varmilo_Minilo75_Pro.js": b"// new\n"}
+    o.install_update(fetch=new.__getitem__, folder=app, plugin_dir=plugins)
+    assert open(os.path.join(app, "varmilo_overlay.py"), "rb").read() == b"y = 2\n"
+    assert open(settings).read() == "mine"
+    assert not os.path.exists(os.path.join(plugins, "Varmilo_Minilo75_Pro.js")), "no plugin installed, none added"
+    open(os.path.join(plugins, "Varmilo_Minilo75_Pro.js"), "w").close()
+    o.install_update(fetch=new.__getitem__, folder=app, plugin_dir=plugins)
+    assert open(os.path.join(plugins, "Varmilo_Minilo75_Pro.js"), "rb").read() == b"// new\n", "installed plugin refreshed"
+    broken = {**new, "varmilo_overlay.py": b"def (:\n"}
+    try:
+        o.install_update(fetch=broken.__getitem__, folder=app, plugin_dir=plugins)
+        raise AssertionError("broken download was installed")
+    except SyntaxError:
+        pass
+    assert open(os.path.join(app, "varmilo_overlay.py"), "rb").read() == b"y = 2\n", "working version kept"
+assert not o.can_self_update(), "the git checkout must never replace itself"
+
 # Taking the keyboard: heartbeats first (so a busy SignalRGB plugin steps back), then direct mode.
 o.CLAIM_SECONDS = 0.1
 fake, state, p = fresh()
