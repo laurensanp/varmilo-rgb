@@ -15,6 +15,7 @@ shutdownMode:readonly
 shutdownColor:readonly
 LightingMode:readonly
 forcedColor:readonly
+logoLight:readonly
 */
 export function ControllableParameters() {
 	return [
@@ -22,6 +23,7 @@ export function ControllableParameters() {
 		{ property: "shutdownColor", group: "lighting", label: "Shutdown Color", min: "0", max: "360", type: "color", default: "#000000" },
 		{ property: "LightingMode", group: "lighting", label: "Lighting Mode", type: "combobox", values: ["Auto", "Canvas", "Forced", "Extern"], default: "Auto" },
 		{ property: "forcedColor", group: "lighting", label: "Forced Color", min: "0", max: "360", type: "color", default: "#009bde" },
+		{ property: "logoLight", group: "lighting", label: "VARMILO Logo", type: "combobox", values: ["On", "Off"], default: "On" },
 	];
 }
 
@@ -132,6 +134,16 @@ export function Initialize() {
 function takeOver() {
 	cmd(0x91);
 	fill([0, 0, 0]);
+	setLogo();
+}
+
+// Feature report 0x18 holds the indicator lights; its third byte drives the VARMILO logo (0x80 = on).
+// It only works in direct mode and is not stored, so it is repeated.
+function setLogo() {
+	const report = new Array(20).fill(0);
+	report[0] = 0x18;
+	report[3] = logoLight === "Off" ? 0 : 0x80;
+	device.send_report(report, 20);
 }
 
 export function onLightingModeChanged() {
@@ -150,6 +162,7 @@ export function Render() {
 	frame = (frame + 1) % CHECK_EVERY_FRAMES;
 	if (frame === 0 || LightingMode === "Extern") { decide(report); }
 	if (yielded) { return; }
+	if (frame === 0) { setLogo(); }
 	// Trust the keyboard over our memory: a key the firmware turned white on press, or a dropped
 	// command, now shows up as a big difference and gets fixed first, in this very frame.
 	if (report) { KEYS.forEach((key, i) => { sent[i] = pixel(report, key[3]); }); }

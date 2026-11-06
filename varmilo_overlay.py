@@ -8,7 +8,7 @@ key and records the LED that turned white.
 Colours live in the keyboard's RAM, so the overlay must keep running. Quitting it from the tray hands
 the keyboard to SignalRGB (plugin on "Auto") or back to the onboard lighting.
 """
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 import colorsys
 import json
 import os
@@ -62,8 +62,9 @@ DESIGN_ACCENT = {"Esc", "Enter", "Space", "Up", "Left", "Down", "Right"}
 PRESETS = [TAUPE, "#ff0000", "#ff6a00", "#ffd000", "#00ff40", "#00e5ff", "#0040ff", "#a000ff", "#ff00a0", "#ffffff"]
 MODES = [("Design", "design"), ("Alle", "solid"), ("Einzeln", "keys"), ("Regenbogen", "rainbow"), ("Original", "original"), ("SignalRGB", "signalrgb")]
 HANDS_OFF = ("original", "signalrgb")  # modes where the overlay does not paint
-DEFAULTS = {"mode": "design", "color": TAUPE, "brightness": 100, "keys": {}, "map": DEFAULT_MAP, "profiles": {}, "x": 80, "y": 80}
-PROFILE_FIELDS = ("mode", "color", "brightness", "keys")  # the learned key map is hardware, not a look
+DEFAULTS = {"mode": "design", "color": TAUPE, "brightness": 100, "keys": {}, "map": DEFAULT_MAP, "profiles": {}, "logo": True, "x": 80, "y": 80}
+PROFILE_FIELDS = ("mode", "color", "brightness", "keys", "logo")  # the learned key map is hardware, not a look
+LOGO_REFRESH_SECONDS = 1  # the logo state is not stored, so it is repeated
 STATE_FILE = os.path.join(os.environ.get("APPDATA", "."), "VarmiloOverlay", "state.json")
 STARTUP_DIR = os.path.join(os.environ.get("APPDATA", "."), r"Microsoft\Windows\Start Menu\Programs\Startup")
 STARTUP_FILE = os.path.join(STARTUP_DIR, "Varmilo Overlay.vbs")  # .vbs starts it without a console flash
@@ -147,6 +148,13 @@ class Painter:
         self.learning = False
         self.seen = set()
         self.hits = queue.Queue()
+        self.logo_sent = None  # (state, time) of the last logo command
+
+    def logo(self):
+        on, now = self.state.get("logo", True), time.monotonic()
+        if self.logo_sent is None or self.logo_sent[0] != on or now - self.logo_sent[1] > LOGO_REFRESH_SECONDS:
+            kb.set_logo(self.dev, on)
+            self.logo_sent = (on, now)
 
     def target(self, now):
         s = self.state
@@ -236,6 +244,8 @@ class Painter:
                 kb.cmd(self.dev, kb.ENTER)
                 self.direct = True
                 self.sent = {led: BLACK for led in range(kb.LEDS)}
+                self.logo_sent = None
+            self.logo()
             if self.learning:
                 self.learn()
                 return
@@ -484,6 +494,12 @@ class Overlay:
     def build_slider(self):
         row = tk.Frame(self.controls, bg=self.BG)
         row.pack(fill="x")
+        logo = tk.Label(row, text="Logo", bg=self.BG, fg=self.MUTED, font=self.FONT, cursor="hand2")
+        logo.pack(side="right")
+        self.logo_switch = tk.Canvas(row, width=30, height=16, bg=self.BG, highlightthickness=0, cursor="hand2")
+        self.logo_switch.pack(side="right", padx=(16, 6))
+        for widget in (logo, self.logo_switch):
+            widget.bind("<Button-1>", lambda _: self.toggle_logo())
         self.slider = tk.Canvas(row, height=18, bg=self.BG, highlightthickness=0, cursor="hand2")
         self.slider.pack(side="left", fill="x", expand=True)
         self.slider_value = tk.Label(row, text="", width=5, bg=self.BG, fg=self.MUTED, font=self.FONT, anchor="e")
@@ -750,11 +766,19 @@ class Overlay:
             self.progress.coords(self.progress_bar, 0, 0, width * self.learn_index / len(KEY_IDS), 3)
         for key in self.key_items:
             self.draw_key(key)
-        on = os.path.exists(STARTUP_FILE)
-        self.switch.delete("all")
-        self.round_rect(self.switch, 1, 1, 29, 15, 7, fill=self.accent() if on else self.LINE)
+        self.draw_switch(self.switch, os.path.exists(STARTUP_FILE))
+        self.draw_switch(self.logo_switch, s.get("logo", True))
+
+    def draw_switch(self, canvas, on):
+        canvas.delete("all")
+        self.round_rect(canvas, 1, 1, 29, 15, 7, fill=self.accent() if on else self.LINE)
         knob = 21 if on else 9
-        self.switch.create_oval(knob - 5, 3, knob + 5, 13, fill="#ffffff", outline="")
+        canvas.create_oval(knob - 5, 3, knob + 5, 13, fill="#ffffff", outline="")
+
+    def toggle_logo(self):
+        self.state["logo"] = not self.state.get("logo", True)
+        self.commit()
+        self.refresh()
 
     def poll(self):
         connected = self.painter.connected

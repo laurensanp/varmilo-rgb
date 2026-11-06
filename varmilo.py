@@ -66,6 +66,12 @@ def send(dev, *payload):
         pass
 
 
+def set_logo(dev, on):
+    """Feature report 0x18 holds the indicator lights; its third byte drives the VARMILO logo (0x80 = on).
+    Only works in direct mode and is not stored, so callers repeat it."""
+    dev.send_feature_report(bytes([0x18, 0, 0, 0x80 if on else 0] + [0] * 16))
+
+
 def fill(dev, r, g, b):
     cmd(dev, FILL, 0, 0, 0, r, g, b)
 

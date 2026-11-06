@@ -11,6 +11,7 @@ let canvas = () => [0, 0, 0];
 let overlayOn = false;
 let beating = true;
 let beat = 1;
+const logoReports = [];
 
 globalThis.device = {
 	set_endpoint: (...a) => assert.deepStrictEqual(a, [1, 0xff19, 0xff19, 4]),
@@ -25,6 +26,10 @@ globalThis.device = {
 	},
 	read: () => writes.at(-1),
 	color: (x, y) => canvas(x, y),
+	send_report: (data, n) => {
+		assert.deepStrictEqual([data[0], n, data.length], [0x18, 20, 20], "only the indicator report, never firmware 0x06");
+		logoReports.push(data[3]);
+	},
 	get_report: (data, n) => {
 		assert.deepStrictEqual([data[0], n], [0x13, 284]);
 		if (overlayOn) {
@@ -35,7 +40,7 @@ globalThis.device = {
 		return [0x13, ...buffer, ...new Array(19).fill(0)];
 	},
 };
-Object.assign(globalThis, { LightingMode: "Canvas", forcedColor: "#102030", shutdownMode: "Hardware", shutdownColor: "#000000" });
+Object.assign(globalThis, { LightingMode: "Canvas", forcedColor: "#102030", shutdownMode: "Hardware", shutdownColor: "#000000", logoLight: "On" });
 
 const src = readFileSync(new URL("./Varmilo_Minilo75_Pro.js", import.meta.url), "utf8");
 const p = await import("data:text/javascript," + encodeURIComponent(src));
@@ -55,6 +60,13 @@ assert(!p.Validate({ interface: 1, usage_page: 0xff19, collection: 5 }));
 
 p.Initialize();
 assert.deepStrictEqual(writes.map((w) => w[1]), [0x91, 0x92]);
+assert.deepStrictEqual(logoReports, [0x80], "logo switched on when taking over");
+
+// The logo is repeated while in charge, and follows the setting.
+globalThis.logoLight = "Off";
+run(10);
+assert.strictEqual(logoReports.at(-1), 0);
+globalThis.logoLight = "On";
 
 // A uniform colour is one fill, and a settled frame sends nothing at all.
 writes.length = 0;
@@ -118,9 +130,11 @@ globalThis.LightingMode = "Auto";
 overlayOn = true;
 writes.length = 0;
 p.Initialize();
+const logoBefore = logoReports.length;
 run(25);
 p.Shutdown(false);
 assert.strictEqual(writes.length, 0, "no writes while the overlay paints");
+assert.strictEqual(logoReports.length, logoBefore, "the logo is the overlay's business while it paints");
 overlayOn = false;
 setPx(86, [0, 0, 0]);
 run(10);

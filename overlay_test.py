@@ -27,6 +27,10 @@ class FakeKeyboard:
     def press(self, led, color=(255, 255, 255)):
         self.buffer[led], self.buffer[88 + led], self.buffer[176 + led] = color
 
+    def send_feature_report(self, data):
+        assert data[0] == 0x18 and len(data) == 20, "only the indicator report, never firmware 0x06"
+        self.logo = data[3]
+
     def get_feature_report(self, _, __):
         if self.broken:
             raise OSError("unplugged")
@@ -65,6 +69,16 @@ assert o.is_marker(o.pixel(fake.buffer, o.MARKER_LED))
 fake.commands.clear()
 p.step()
 assert all(c[1:3] == bytes([7, 9]) for c in fake.commands), "a settled frame only moves the heartbeat"
+
+# The logo is on by default, follows the switch at once, and is part of a profile.
+assert fake.logo == 0x80
+state["logo"] = False
+p.step()
+assert fake.logo == 0
+state["logo"] = True
+p.step()
+assert fake.logo == 0x80
+assert o.snapshot(state)["logo"] is True
 
 # A key the firmware turned white is corrected within one step.
 fake.press(7)
