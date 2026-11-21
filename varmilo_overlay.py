@@ -8,7 +8,7 @@ key and records the LED that turned white.
 Colours live in the keyboard's RAM, so the overlay must keep running. Quitting it from the tray hands
 the keyboard to SignalRGB (plugin on "Auto") or back to the onboard lighting.
 """
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 import colorsys
 import json
 import math
