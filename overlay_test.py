@@ -102,6 +102,22 @@ fake.commands.clear()
 p.step()
 assert fake.commands[0][4:7] == bytes([0x08, 0x10, 0x18])
 
+# Whole-board effects: one colour on every LED, sent as one fill, and they paint over a white key.
+assert o.breathe((200, 100, 0), 0) == (0, 0, 0) and o.breathe((200, 100, 0), 2.5) == (200, 100, 0)
+assert o.pulse((0, 0, 200), .08)[2] == 200 and o.pulse((0, 0, 200), 1.3)[2] < 10
+assert o.cycle(None, 0) == (255, 0, 0) and o.cycle(None, 4)[1] == 255
+fake, state, p = fresh(mode="breathe", color="#c86400", map=MAP)
+target = p.target(1.0)
+assert len({c for led, c in target.items() if led != o.MARKER_LED}) == 1 and o.is_marker(target[o.MARKER_LED])
+for mode in o.EFFECTS:
+    fake, state, p = fresh(mode=mode, color="#ff0000", map=MAP)
+    p.step()
+    fake.press(7)
+    fake.commands.clear()
+    p.step()
+    assert fake.commands[0][0] == 0x92 or o.pixel(fake.buffer, 7) == o.pixel(fake.buffer, 8), mode
+    assert o.pixel(fake.buffer, 7) != (255, 255, 255), mode
+
 # Learning: every LED dark, a press is reported once, also while the key stays held.
 fake, state, p = fresh()
 p.start_learning()

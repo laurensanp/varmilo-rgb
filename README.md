@@ -4,7 +4,7 @@ Per-key lighting for the **Varmilo Minilo75 Pro** on Windows: a small always-on-
 
 ![The overlay](assets/overlay.png)
 
-- **Overlay:** pick a mode (a two-tone design, one colour, single keys, rainbow), click keys to paint them, set the brightness and save looks as profiles.
+- **Overlay:** pick a mode (a two-tone design, one colour, single keys) or an effect (rainbow, breathing, pulse, colour cycle), click keys to paint them, set the brightness and save looks as profiles.
 - **SignalRGB plugin:** SignalRGB effects on the keyboard. One click in the overlay hands the keyboard to SignalRGB and back.
 - **Tray icon:** closing the window keeps the lighting running. It can start hidden with Windows.
 - **Safe:** it only uses the keyboard's temporary direct mode. It never writes to the keyboard's flash memory, so unplugging always brings back the original lighting.

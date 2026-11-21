@@ -11,6 +11,7 @@ the keyboard to SignalRGB (plugin on "Auto") or back to the onboard lighting.
 __version__ = "1.1.1"
 import colorsys
 import json
+import math
 import os
 import queue
 import re
@@ -60,7 +61,8 @@ TAUPE = "#a0784f"
 DESIGN_LIGHT = {"F5", "F6", "F7", "F8", "Del", "Ins", "PgUp", "PgDn", "Backspace", "Tab", "Caps", "LShift", "RShift", "LCtrl", "Win", "Alt", "Fn", "RAlt", "RCtrl"}
 DESIGN_ACCENT = {"Esc", "Enter", "Space", "Up", "Left", "Down", "Right"}
 PRESETS = [TAUPE, "#ff0000", "#ff6a00", "#ffd000", "#00ff40", "#00e5ff", "#0040ff", "#a000ff", "#ff00a0", "#ffffff"]
-MODES = [("Design", "design"), ("Alle", "solid"), ("Einzeln", "keys"), ("Regenbogen", "rainbow"), ("Original", "original"), ("SignalRGB", "signalrgb")]
+MODES = [("Design", "design"), ("Alle", "solid"), ("Einzeln", "keys"), ("Original", "original"), ("SignalRGB", "signalrgb")]
+EFFECT_MODES = [("Regenbogen", "rainbow"), ("Atmen", "breathe"), ("Puls", "pulse"), ("Farbwechsel", "cycle")]
 HANDS_OFF = ("original", "signalrgb")  # modes where the overlay does not paint
 DEFAULTS = {"mode": "design", "color": TAUPE, "brightness": 100, "keys": {}, "map": DEFAULT_MAP, "profiles": {}, "logo": True, "x": 80, "y": 80}
 PROFILE_FIELDS = ("mode", "color", "brightness", "keys", "logo")  # the learned key map is hardware, not a look
@@ -91,6 +93,27 @@ def is_marker(color):
 
 def rgb(text):
     return tuple(int(text[i:i + 2], 16) for i in (1, 3, 5))
+
+
+# Whole-board effects: one colour for every LED, so each frame is a single fill command (~50 frames per second),
+# which also paints over keys the firmware turned white. Levels are squared because the eye sees LED
+# brightness as far from linear, and a linear fade would seem to hang at full brightness.
+def breathe(color, now):
+    level = ((1 - math.cos(now * math.tau / 5)) / 2) ** 2  # 5 s per breath
+    return tuple(int(v * level) for v in color)
+
+
+def pulse(color, now):
+    phase = now % 1.4
+    level = (phase / .08 if phase < .08 else math.exp(-(phase - .08) * 4)) ** 2  # quick rise, slow fade
+    return tuple(int(v * level) for v in color)
+
+
+def cycle(_, now):
+    return tuple(int(v * 255) for v in colorsys.hsv_to_rgb(now / 12 % 1, 1, 1))  # 12 s around the colour wheel
+
+
+EFFECTS = {"breathe": breathe, "pulse": pulse, "cycle": cycle}
 
 
 def base_color(state, key):
@@ -160,13 +183,17 @@ class Painter:
         s = self.state
         scale = s["brightness"] / 100
         # LEDs without a learned key stay dark, except where every LED shows the same colour anyway.
-        out = {led: rgb(s["color"]) if s["mode"] == "solid" else BLACK for led in range(kb.LEDS)}
-        for key, led in s["map"].items():
-            if s["mode"] == "rainbow":
-                hue = KEY_IDS.index(key) / len(KEY_IDS) + now / 8
-                out[led] = tuple(int(v * 255) for v in colorsys.hsv_to_rgb(hue % 1, 1, 1))
-            else:
-                out[led] = rgb(base_color(s, key))
+        effect = EFFECTS.get(s["mode"])
+        if effect:
+            out = dict.fromkeys(range(kb.LEDS), effect(rgb(s["color"]), now))
+        else:
+            out = {led: rgb(s["color"]) if s["mode"] == "solid" else BLACK for led in range(kb.LEDS)}
+            for key, led in s["map"].items():
+                if s["mode"] == "rainbow":
+                    hue = KEY_IDS.index(key) / len(KEY_IDS) + now / 8
+                    out[led] = tuple(int(v * 255) for v in colorsys.hsv_to_rgb(hue % 1, 1, 1))
+                else:
+                    out[led] = rgb(base_color(s, key))
         out = {led: tuple(int(v * scale) for v in c) for led, c in out.items()}
         out[MARKER_LED] = marker(now)
         return out
@@ -459,16 +486,17 @@ class Overlay:
         self.version.pack(side="right", padx=6)
 
     def build_modes(self):
-        bar = tk.Frame(self.controls, bg=self.SURFACE, padx=3, pady=3)
-        bar.pack(fill="x", pady=(6, 0))
         self.mode_labels = {}
-        for text, mode in MODES:
-            label = tk.Label(bar, text=text, bg=self.SURFACE, font=self.FONT, pady=5, cursor="hand2")
-            label.pack(side="left", expand=True, fill="x")
-            label.bind("<Button-1>", lambda _, m=mode: self.set_mode(m))
-            label.bind("<Enter>", lambda _, l=label, m=mode: self.state["mode"] != m and l.configure(fg=self.FG))
-            label.bind("<Leave>", lambda _: self.refresh())
-            self.mode_labels[mode] = label
+        for modes in (MODES, EFFECT_MODES):
+            bar = tk.Frame(self.controls, bg=self.SURFACE, padx=3, pady=3)
+            bar.pack(fill="x", pady=(6, 0))
+            for text, mode in modes:
+                label = tk.Label(bar, text=text, bg=self.SURFACE, font=self.FONT, pady=5, cursor="hand2")
+                label.pack(side="left", expand=True, fill="x")
+                label.bind("<Button-1>", lambda _, m=mode: self.set_mode(m))
+                label.bind("<Enter>", lambda _, l=label, m=mode: self.state["mode"] != m and l.configure(fg=self.FG))
+                label.bind("<Leave>", lambda _: self.refresh())
+                self.mode_labels[mode] = label
 
     def build_swatches(self):
         self.swatch_canvas = tk.Canvas(self.controls, height=26, bg=self.BG, highlightthickness=0)
@@ -571,7 +599,7 @@ class Overlay:
 
     def pick(self, color):
         self.state["color"] = color
-        if self.state["mode"] in ("rainbow", *HANDS_OFF):
+        if self.state["mode"] in ("rainbow", "cycle", *HANDS_OFF):  # breathing and pulse keep the new colour
             self.state["mode"] = "design"
         self.commit()
         self.refresh()
@@ -727,7 +755,7 @@ class Overlay:
         mode = self.state["mode"]
         if mode in HANDS_OFF:
             return self.KEY_OFF
-        if mode == "rainbow":
+        if mode in ("rainbow", "cycle"):
             r, g, b = colorsys.hsv_to_rgb(KEY_IDS.index(key) / len(KEY_IDS), .75, .95)
             return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
         color = base_color(self.state, key)
