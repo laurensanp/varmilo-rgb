@@ -34,7 +34,7 @@ To uninstall, run the install line and pick **Remove**.
 - **Cable only:** the lighting can only be controlled over the USB cable. Over the 2.4 GHz dongle the keyboard uses its own lighting.
 - **Layout:** the key map ships for the ANSI layout. For another layout, click **Tasten einlernen** and press each key once.
 - **Speed:** the keyboard accepts one LED command about every 7 ms, so fast, detailed SignalRGB effects look choppy. Slow and full-board effects look fine.
-- **Pressed keys flash white:** the keyboard's firmware does that itself. The overlay and the plugin paint over it right away, so only a short flash is left.
+- **Pressed keys flash white:** the keyboard's firmware does that itself and has no known switch for it. The overlay and the plugin paint over it right away, so only a short flash is left. It is shortest in the whole-board effects (breathing, pulse, colour cycle) and with one colour on all keys.
 - **SignalRGB:** keep the plugin's Lighting Mode on **Auto** (the default). The overlay and SignalRGB then take turns without fighting over the keyboard.
 
 ## Troubleshooting

@@ -71,7 +71,8 @@ STATE_FILE = os.path.join(os.environ.get("APPDATA", "."), "VarmiloOverlay", "sta
 STARTUP_DIR = os.path.join(os.environ.get("APPDATA", "."), r"Microsoft\Windows\Start Menu\Programs\Startup")
 STARTUP_FILE = os.path.join(STARTUP_DIR, "Varmilo Overlay.vbs")  # .vbs starts it without a console flash
 LEGACY_STARTUP_FILE = os.path.join(STARTUP_DIR, "Varmilo Overlay.cmd")
-FRAME_BUDGET = 0.04  # about 7 ms per LED, so 5-6 LEDs per frame
+# About 7.5 ms per LED. Short frames so the readback that undoes white pressed keys runs every ~25 ms.
+FRAME_BUDGET = 0.02
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 # While the overlay paints it keeps a marker on LED slot 86, which no key uses: fixed red and blue, and a
